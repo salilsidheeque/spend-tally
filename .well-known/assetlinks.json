@@ -1,0 +1,8 @@
+[{
+      "relation": ["delegate_permission/common.handle_all_urls"],
+      "target": {
+        "namespace": "android_app",
+        "package_name": "io.github.salilsidheeque.twa",
+        "sha256_cert_fingerprints": ["32:D2:22:4B:69:41:1E:DE:53:52:24:45:8E:C9:EA:FF:76:98:6E:32:5F:E3:EC:82:37:DB:3E:8F:52:28:16:E7"]
+      }
+    }]

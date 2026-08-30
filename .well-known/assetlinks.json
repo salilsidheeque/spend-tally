@@ -3,6 +3,6 @@
       "target": {
         "namespace": "android_app",
         "package_name": "io.github.salilsidheeque.twa",
-        "sha256_cert_fingerprints": ["32:D2:22:4B:69:41:1E:DE:53:52:24:45:8E:C9:EA:FF:76:98:6E:32:5F:E3:EC:82:37:DB:3E:8F:52:28:16:E7"]
+        "sha256_cert_fingerprints": ["AA:DB:42:86:5C:ED:EF:66:28:60:CD:73:B1:18:5C:0F:91:29:3B:63:8C:74:1D:8F:BA:38:77:97:EC:3B:E5:58"]
       }
     }]

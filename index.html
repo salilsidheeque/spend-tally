@@ -13,12 +13,34 @@
   html, body { margin: 0; padding: 0; background: #F3EEE1; }
   #root { min-height: 100vh; }
 </style>
-<script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
-<script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
-<script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+<script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js" onerror="showLoadError('React')"></script>
+<script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js" onerror="showLoadError('ReactDOM')"></script>
+<script src="https://unpkg.com/@babel/standalone/babel.min.js" onerror="showLoadError('Babel')"></script>
 </head>
 <body>
-<div id="root"></div>
+<div id="root">
+  <div style="min-height:100vh;display:flex;align-items:center;justify-content:center;font-family:Georgia,serif;color:#6B7353;background:#F3EEE1;text-align:center;padding:24px;">
+    Loading Spend Tally&hellip;
+  </div>
+</div>
+<div id="fatal-error" style="display:none;min-height:100vh;align-items:center;justify-content:center;font-family:ui-sans-serif,sans-serif;color:#8A5A44;background:#F3EEE1;text-align:left;padding:24px;box-sizing:border-box;white-space:pre-wrap;font-size:13px;line-height:1.5;"></div>
+<script>
+  function showLoadError(what) {
+    var el = document.getElementById('fatal-error');
+    document.getElementById('root').style.display = 'none';
+    el.style.display = 'flex';
+    el.style.flexDirection = 'column';
+    el.textContent = 'Could not load ' + what + ' from unpkg.com.\n\nThis usually means your network or browser is blocking that CDN. Try switching from mobile data to Wi-Fi (or vice versa), or try a different browser.';
+  }
+  window.addEventListener('error', function (e) {
+    var el = document.getElementById('fatal-error');
+    if (el.style.display !== 'none') return;
+    document.getElementById('root').style.display = 'none';
+    el.style.display = 'flex';
+    el.style.flexDirection = 'column';
+    el.textContent = 'Spend Tally hit an error while starting up:\n\n' + (e.message || e) + '\n\nFile: ' + (e.filename || 'unknown') + (e.lineno ? (':' + e.lineno) : '');
+  });
+</script>
 <script type="text/babel" data-presets="react">
     
 // Local, on-device storage shim standing in for Claude's window.storage API

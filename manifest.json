@@ -1,0 +1,16 @@
+{
+  "name": "Spend Tally",
+  "short_name": "Spend Tally",
+  "description": "Track expenses and manage cards by bank, category, and billing cycle.",
+  "start_url": "./index.html",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#F3EEE1",
+  "theme_color": "#3F4530",
+  "icons": [
+    { "src": "icon-192.png", "sizes": "192x192", "type": "image/png" },
+    { "src": "icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ]
+}

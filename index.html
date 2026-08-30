@@ -1,0 +1,1213 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no" />
+<title>Spend Tally</title>
+<meta name="theme-color" content="#3F4530" />
+<meta name="description" content="Track expenses and manage cards by bank, category, and billing cycle." />
+<link rel="manifest" href="manifest.json" />
+<link rel="apple-touch-icon" href="icon-192.png" />
+<link rel="icon" href="icon-192.png" />
+<style>
+  html, body { margin: 0; padding: 0; background: #F3EEE1; }
+  #root { min-height: 100vh; }
+</style>
+<script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+<script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+<script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+</head>
+<body>
+<div id="root"></div>
+<script type="text/babel" data-presets="react">
+    
+// Local, on-device storage shim standing in for Claude's window.storage API
+window.storage = {
+  get: async (key) => {
+    const v = localStorage.getItem("spendtally:" + key);
+    if (v === null) throw new Error("not found");
+    return { key, value: v, shared: false };
+  },
+  set: async (key, value) => {
+    localStorage.setItem("spendtally:" + key, value);
+    return { key, value, shared: false };
+  },
+  delete: async (key) => {
+    localStorage.removeItem("spendtally:" + key);
+    return { key, deleted: true, shared: false };
+  },
+  list: async (prefix = "") => {
+    const full = "spendtally:" + prefix;
+    const keys = Object.keys(localStorage)
+      .filter((k) => k.startsWith(full))
+      .map((k) => k.slice("spendtally:".length));
+    return { keys, prefix, shared: false };
+  },
+};
+
+// Minimal inline icon set standing in for lucide-react (no bundler in the standalone build)
+function Icon({ children, size = 18, ...rest }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor"
+      strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" {...rest}>
+      {children}
+    </svg>
+  );
+}
+function Plus(props) { return <Icon {...props}><line x1="12" y1="5" x2="12" y2="19" /><line x1="5" y1="12" x2="19" y2="12" /></Icon>; }
+function Landmark(props) {
+  return <Icon {...props}>
+    <line x1="3" y1="22" x2="21" y2="22" />
+    <line x1="6" y1="18" x2="6" y2="11" />
+    <line x1="10" y1="18" x2="10" y2="11" />
+    <line x1="14" y1="18" x2="14" y2="11" />
+    <line x1="18" y1="18" x2="18" y2="11" />
+    <polygon points="12 2 20 7 4 7" />
+  </Icon>;
+}
+function MessageSquareText(props) {
+  return <Icon {...props}>
+    <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
+    <line x1="7" y1="8.5" x2="17" y2="8.5" />
+    <line x1="7" y1="12.5" x2="13" y2="12.5" />
+  </Icon>;
+}
+function Trash2(props) {
+  return <Icon {...props}>
+    <line x1="3" y1="6" x2="21" y2="6" />
+    <path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6" />
+    <path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
+    <line x1="10" y1="11" x2="10" y2="17" />
+    <line x1="14" y1="11" x2="14" y2="17" />
+  </Icon>;
+}
+function ChevronLeft(props) { return <Icon {...props}><polyline points="15 18 9 12 15 6" /></Icon>; }
+function ChevronRight(props) { return <Icon {...props}><polyline points="9 18 15 12 9 6" /></Icon>; }
+function Check(props) { return <Icon {...props}><polyline points="20 6 9 17 4 12" /></Icon>; }
+function ListChecks(props) {
+  return <Icon {...props}>
+    <polyline points="3 6 4.5 7.5 7 5" />
+    <line x1="10" y1="6" x2="21" y2="6" />
+    <polyline points="3 12 4.5 13.5 7 11" />
+    <line x1="10" y1="12" x2="21" y2="12" />
+    <polyline points="3 18 4.5 19.5 7 17" />
+    <line x1="10" y1="18" x2="21" y2="18" />
+  </Icon>;
+}
+function Home(props) {
+  return <Icon {...props}>
+    <path d="M3 9.5 12 2l9 7.5V21a1 1 0 0 1-1 1h-5v-8H9v8H4a1 1 0 0 1-1-1z" />
+  </Icon>;
+}
+function Inbox(props) {
+  return <Icon {...props}>
+    <path d="M22 12h-6l-2 3h-4l-2-3H2" />
+    <path d="M5.45 5.11 2 12v6a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-6l-3.45-6.89A2 2 0 0 0 16.76 4H7.24a2 2 0 0 0-1.79 1.11z" />
+  </Icon>;
+}
+
+function TallyMark({ size = 22, strokeColor = "#3F4530", accentColor = "#9C8F4E" }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 48 48" fill="none" xmlns="http://www.w3.org/2000/svg">
+      <line x1="12" y1="12" x2="12" y2="36" stroke={strokeColor} strokeWidth="4.5" strokeLinecap="round" />
+      <line x1="19.5" y1="12" x2="19.5" y2="36" stroke={strokeColor} strokeWidth="4.5" strokeLinecap="round" />
+      <line x1="27" y1="12" x2="27" y2="36" stroke={strokeColor} strokeWidth="4.5" strokeLinecap="round" />
+      <line x1="34.5" y1="12" x2="34.5" y2="36" stroke={strokeColor} strokeWidth="4.5" strokeLinecap="round" />
+      <line x1="9" y1="34" x2="38" y2="14" stroke={accentColor} strokeWidth="4.5" strokeLinecap="round" />
+    </svg>
+  );
+}
+
+const PALETTE = ["#6B7353", "#9C8F4E", "#7C8A6E", "#8A7B4F", "#5D6B4A", "#A3925B"];
+
+const CATEGORIES = [
+  { id: "dining", name: "Dining", color: "#8A5A44", keywords: ["restaurant", " rest ", "resto", "cafe", "coffee", "bistro", "diner", "kitchen", "grill", "bakery", "pizza", "food court"] },
+  { id: "grocery", name: "Grocery", color: "#5D6B4A", keywords: ["supermarket", "hypermarket", "grocery", "mart", "carrefour", "lulu", "spinneys", "choithram", "market"] },
+  { id: "online", name: "Online", color: "#6B7353", keywords: ["amazon", "noon", "online", ".com", "ebay", "shein", "aliexpress", "flipkart"] },
+  { id: "movies", name: "Movies", color: "#7C8A6E", keywords: ["cinema", "movie", "vox", "reel", "imax", "theatre", "theater"] },
+  { id: "fuel", name: "Fuel", color: "#9C8F4E", keywords: ["petrol", "fuel", "enoc", "eppco", "adnoc", "shell", "gas station"] },
+  { id: "health", name: "Health", color: "#A3925B", keywords: ["pharmacy", "clinic", "hospital", "medical", "drug store"] },
+  { id: "travel", name: "Travel", color: "#8A7B4F", keywords: ["airlines", "airways", "hotel", "travel", "uber", "careem", "taxi", "flight"] },
+  { id: "shopping", name: "Shopping", color: "#6B7353", keywords: ["mall", "store", "boutique", "fashion", "shoes", "apparel"] },
+  { id: "utilities", name: "Utilities", color: "#5D6B4A", keywords: ["dewa", "etisalat", " du ", "electricity", "water bill", "telecom"] },
+  { id: "other", name: "Other", color: "#B8AF95", keywords: [] },
+];
+
+function detectCategory(text) {
+  if (!text) return "other";
+  const lower = ` ${text.toLowerCase()} `;
+  for (const cat of CATEGORIES) {
+    if (cat.keywords.some((k) => lower.includes(k))) return cat.id;
+  }
+  return "other";
+}
+
+const NETWORKS = ["Visa", "Mastercard", "Amex", "Discover", "RuPay", "Other"];
+const CARD_TYPES = [
+  { id: "credit", name: "Credit card" },
+  { id: "debit", name: "Debit card" },
+];
+
+function daysInMonth(y, m) {
+  return new Date(y, m + 1, 0).getDate();
+}
+
+// The billing cycle date in month (y, m) for a given statement day,
+// clamped to the last day of the month for short months.
+function cycleAnchor(y, m, statementDay) {
+  const d = Math.min(statementDay, daysInMonth(y, m));
+  return new Date(y, m, d);
+}
+
+// Billing cycle that ENDS (statement date) in month (y, m):
+// runs from the day after the previous month's statement date
+// through this month's statement date.
+function cycleRange(y, m, statementDay) {
+  const end = cycleAnchor(y, m, statementDay);
+  const pm = m === 0 ? 11 : m - 1;
+  const py = m === 0 ? y - 1 : y;
+  const prevEnd = cycleAnchor(py, pm, statementDay);
+  const start = new Date(prevEnd);
+  start.setDate(start.getDate() + 1);
+  return { start, end };
+}
+
+function toISO(d) {
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+}
+
+const MONTH_NAMES = [
+  "January","February","March","April","May","June",
+  "July","August","September","October","November","December",
+];
+
+function uid() {
+  return Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
+}
+
+function todayISO() {
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+}
+
+function formatAmount(n) {
+  return Number(n).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+}
+
+function formatDateDisplay(iso) {
+  const [y, m, d] = iso.split("-").map(Number);
+  const dt = new Date(y, m - 1, d);
+  return `${String(d).padStart(2, "0")} ${MONTH_NAMES[m - 1].slice(0, 3)} ${y}`;
+}
+
+function stripBalanceNoise(text) {
+  return text.replace(
+    /(?:avl\.?\s*bal(?:ance)?|available\s*(?:limit|balance|bal)|avail\.?\s*bal|combined\s*avail\.?\s*bal|outstanding\s*balance|current\s*balance)[^.\n]{0,40}/gi,
+    " "
+  );
+}
+
+// ---- SMS parsing helpers ----
+function extractAmount(text) {
+  const cleaned = stripBalanceNoise(text);
+  const patterns = [
+    // 3-letter currency code, e.g. "AED 45.00", "USD 1,234.50"
+    /\b[A-Z]{3}\s?([\d,]+\.\d{2})\b/,
+    /(?:rs\.?|inr)\s?([\d,]+(?:\.\d{1,2})?)/i,
+    /₹\s?([\d,]+(?:\.\d{1,2})?)/,
+    /\$\s?([\d,]+(?:\.\d{1,2})?)/,
+  ];
+  for (const p of patterns) {
+    const m = cleaned.match(p);
+    if (m) return parseFloat(m[1].replace(/,/g, ""));
+  }
+  return null;
+}
+
+function extractMerchant(text) {
+  // "... from MERCHANT on 29/08" style
+  let m = text.match(/\bfrom\s+([A-Za0-9&'.,\-\s]{3,40}?)\s+on\s+\d/i);
+  if (m) return m[1].trim();
+  // "... at MERCHANT ..." style
+  m = text.match(/\bat\s+([A-Za0-9&'.,\-\s]{3,40}?)(?:\son\b|[.,]|$)/i);
+  if (m) return m[1].trim();
+  // line-based SMS: pick the line that looks like a merchant name, not metadata
+  const skip = /card|purchase|avl|bal|available|balance|instal|interest|condition|apply|otp|debit|credit|combined/i;
+  const lines = text.split(/\n+/).map((l) => l.trim()).filter(Boolean);
+  for (const line of lines) {
+    if (skip.test(line)) continue;
+    if (/^\d/.test(line)) continue;
+    const digitRatio = (line.match(/\d/g) || []).length / line.length;
+    if (digitRatio > 0.3) continue;
+    if (line.length > 3) return line;
+  }
+  return null;
+}
+
+function extractCardLast4(text) {
+  const idx = text.toLowerCase().indexOf("card");
+  if (idx === -1) return null;
+  const window = text.slice(idx, idx + 45);
+  let m = window.match(/[x*]{2,}\s*(\d{4})\b/i);
+  if (m) return m[1];
+  m = window.match(/(?:no\.?|number|ending)[:\s]*(\d{4})\b/i);
+  if (m) return m[1];
+  m = window.match(/(\d{4})\b(?!\d)/);
+  if (m) return m[1];
+  return null;
+}
+
+function extractDate(text) {
+  // dd/mm/yy(yy) or dd-mm-yy(yy)
+  let m = text.match(/(\d{1,2})[-/](\d{1,2})[-/](\d{2,4})/);
+  if (m) {
+    let [, d, mo, y] = m;
+    if (y.length === 2) y = "20" + y;
+    if (Number(mo) <= 12) {
+      return `${y}-${String(mo).padStart(2, "0")}-${String(d).padStart(2, "0")}`;
+    }
+  }
+  // dd Mon yy(yy)
+  const monMap = { jan:1,feb:2,mar:3,apr:4,may:5,jun:6,jul:7,aug:8,sep:9,oct:10,nov:11,dec:12 };
+  m = text.match(/(\d{1,2})[\s-]?([A-Za-z]{3,})[\s-]?(\d{2,4})?/);
+  if (m) {
+    const monKey = m[2].slice(0, 3).toLowerCase();
+    if (monMap[monKey]) {
+      const d = m[1];
+      let y = m[3] || new Date().getFullYear();
+      if (String(y).length === 2) y = "20" + y;
+      return `${y}-${String(monMap[monKey]).padStart(2, "0")}-${String(d).padStart(2, "0")}`;
+    }
+  }
+  // dd/mm with no year at all, e.g. "on 29/08."
+  m = text.match(/\b(\d{1,2})[-/](\d{1,2})\b/);
+  if (m) {
+    const [, d, mo] = m;
+    if (Number(mo) <= 12 && Number(d) <= 31) {
+      const y = new Date().getFullYear();
+      return `${y}-${String(mo).padStart(2, "0")}-${String(d).padStart(2, "0")}`;
+    }
+  }
+  return todayISO();
+}
+
+function splitMessages(raw) {
+  let blocks = raw.split(/\n\s*\n+/).map((b) => b.trim()).filter(Boolean);
+  if (blocks.length > 1) return blocks;
+
+  // No blank lines to go on — group lines heuristically so a single
+  // multi-line SMS isn't shredded into one "message" per line.
+  const lines = raw.split(/\n+/).map((l) => l.trim()).filter(Boolean);
+  if (lines.length <= 1) return lines;
+
+  const headerPattern = /^(credit card purchase|debit card purchase|card purchase|purchase alert|transaction alert)/i;
+  const singleLinePattern = /^[A-Z]{3}\s?[\d,]+\.\d{2}\s+(is charged|has been charged|was charged|spent|debited)/i;
+
+  const groups = [];
+  let current = [];
+  for (const line of lines) {
+    const isNewMsgStart = headerPattern.test(line) || singleLinePattern.test(line);
+    if (isNewMsgStart && current.length > 0) {
+      groups.push(current.join("\n"));
+      current = [line];
+    } else {
+      current.push(line);
+    }
+  }
+  if (current.length) groups.push(current.join("\n"));
+  return groups.length ? groups : [raw.trim()];
+}
+
+function parseSms(raw, banks) {
+  const messages = splitMessages(raw);
+  const results = [];
+  for (const msg of messages) {
+    const amount = extractAmount(msg);
+    if (amount === null) continue;
+    const cardLast4 = extractCardLast4(msg);
+    let matchedBank = null;
+    if (cardLast4) {
+      matchedBank = banks.find((b) => (b.cardLast4 || []).includes(cardLast4)) || null;
+    }
+    if (!matchedBank) {
+      for (const bank of banks) {
+        const kws = (bank.keywords || []).filter(Boolean);
+        if (kws.some((k) => msg.toLowerCase().includes(k.toLowerCase()))) {
+          matchedBank = bank;
+          break;
+        }
+      }
+    }
+    const merchant = extractMerchant(msg);
+    results.push({
+      tempId: uid(),
+      date: extractDate(msg),
+      amount,
+      bankId: matchedBank ? matchedBank.id : null,
+      categoryId: detectCategory(`${merchant || ""} ${msg}`),
+      description: merchant || (msg.length > 60 ? msg.slice(0, 60) + "…" : msg),
+      raw: msg,
+      include: true,
+    });
+  }
+  return results;
+}
+
+function ExpenseTracker() {
+  const [loading, setLoading] = useState(true);
+  const [banks, setBanks] = useState([]);
+  const [expenses, setExpenses] = useState([]);
+  const [tab, setTab] = useState("summary");
+  const [monthCursor, setMonthCursor] = useState(() => {
+    const d = new Date();
+    return { y: d.getFullYear(), m: d.getMonth() };
+  });
+
+  // manual add form
+  const [form, setForm] = useState({ date: todayISO(), amount: "", bankId: "", categoryId: "other", description: "" });
+  const [newBankName, setNewBankName] = useState("");
+
+  // bank/card form
+  const [bankForm, setBankForm] = useState({ name: "", cardLast4: "", keywords: "", cardType: "credit", network: "Visa", statementDay: "" });
+
+  // sms
+  const [smsText, setSmsText] = useState("");
+  const [smsPreview, setSmsPreview] = useState([]);
+
+  useEffect(() => {
+    (async () => {
+      try {
+        const b = await window.storage.get("banks").catch(() => null);
+        const e = await window.storage.get("expenses").catch(() => null);
+        setBanks(b ? JSON.parse(b.value) : []);
+        setExpenses(e ? JSON.parse(e.value) : []);
+      } catch (err) {
+        console.error("load error", err);
+      } finally {
+        setLoading(false);
+      }
+    })();
+  }, []);
+
+  async function persistBanks(next) {
+    setBanks(next);
+    try {
+      await window.storage.set("banks", JSON.stringify(next));
+    } catch (err) {
+      console.error("save banks failed", err);
+    }
+  }
+
+  async function persistExpenses(next) {
+    setExpenses(next);
+    try {
+      await window.storage.set("expenses", JSON.stringify(next));
+    } catch (err) {
+      console.error("save expenses failed", err);
+    }
+  }
+
+  function createBank(opts) {
+    const { name, cardLast4 = [], keywords = [], cardType = "credit", network = "Other", statementDay = null } = opts;
+    const color = PALETTE[banks.length % PALETTE.length];
+    const bank = { id: uid(), name: name.trim(), cardLast4, keywords, cardType, network, statementDay, color };
+    const next = [...banks, bank];
+    persistBanks(next);
+    return bank;
+  }
+
+  function addBank() {
+    if (!bankForm.name.trim()) return;
+    createBank({
+      name: bankForm.name,
+      cardLast4: bankForm.cardLast4.split(",").map((k) => k.trim()).filter(Boolean),
+      keywords: bankForm.keywords.split(",").map((k) => k.trim()).filter(Boolean),
+      cardType: bankForm.cardType,
+      network: bankForm.network,
+      statementDay: bankForm.statementDay ? Number(bankForm.statementDay) : null,
+    });
+    setBankForm({ name: "", cardLast4: "", keywords: "", cardType: "credit", network: "Visa", statementDay: "" });
+  }
+
+  function removeBank(id) {
+    persistBanks(banks.filter((b) => b.id !== id));
+  }
+
+  function addExpenseManual() {
+    if (!form.amount || isNaN(parseFloat(form.amount))) return;
+    let bankId = form.bankId || null;
+    if (bankId === "__new__") {
+      if (!newBankName.trim()) return;
+      const bank = createBank({ name: newBankName });
+      bankId = bank.id;
+    }
+    const next = [
+      ...expenses,
+      {
+        id: uid(),
+        date: form.date,
+        amount: parseFloat(form.amount),
+        bankId,
+        categoryId: form.categoryId || "other",
+        description: form.description.trim() || "Expense",
+        source: "manual",
+      },
+    ];
+    persistExpenses(next);
+    setForm({ date: todayISO(), amount: "", bankId: "", categoryId: "other", description: "" });
+    setNewBankName("");
+    setTab("summary");
+  }
+
+  function removeExpense(id) {
+    persistExpenses(expenses.filter((e) => e.id !== id));
+  }
+
+  const [confirmTarget, setConfirmTarget] = useState(null); // { kind: 'expense'|'card', id, label }
+
+  function requestDeleteExpense(id, label) {
+    setConfirmTarget({ kind: "expense", id, label: label || "this expense" });
+  }
+
+  function requestDeleteCard(id, label) {
+    setConfirmTarget({ kind: "card", id, label: label || "this card" });
+  }
+
+  function cancelDelete() {
+    setConfirmTarget(null);
+  }
+
+  function confirmDelete() {
+    if (!confirmTarget) return;
+    if (confirmTarget.kind === "expense") removeExpense(confirmTarget.id);
+    if (confirmTarget.kind === "card") removeBank(confirmTarget.id);
+    setConfirmTarget(null);
+  }
+
+  function runSmsParse() {
+    const parsed = parseSms(smsText, banks);
+    setSmsPreview(parsed);
+  }
+
+  function togglePreview(tempId) {
+    setSmsPreview((prev) => prev.map((p) => (p.tempId === tempId ? { ...p, include: !p.include } : p)));
+  }
+
+  function updatePreviewBank(tempId, bankId) {
+    setSmsPreview((prev) => prev.map((p) => (p.tempId === tempId ? { ...p, bankId } : p)));
+  }
+
+  function updatePreviewCategory(tempId, categoryId) {
+    setSmsPreview((prev) => prev.map((p) => (p.tempId === tempId ? { ...p, categoryId } : p)));
+  }
+
+  function confirmSmsImport() {
+    const toAdd = smsPreview
+      .filter((p) => p.include)
+      .map((p) => ({
+        id: uid(),
+        date: p.date,
+        amount: p.amount,
+        bankId: p.bankId,
+        categoryId: p.categoryId || "other",
+        description: p.description,
+        source: "sms",
+      }));
+    persistExpenses([...expenses, ...toAdd]);
+    setSmsPreview([]);
+    setSmsText("");
+    setTab("summary");
+  }
+
+  const monthExpenses = useMemo(() => {
+    return expenses.filter((e) => {
+      const [y, m] = e.date.split("-").map(Number);
+      return y === monthCursor.y && m - 1 === monthCursor.m;
+    });
+  }, [expenses, monthCursor]);
+
+  const monthTotal = monthExpenses.reduce((s, e) => s + e.amount, 0);
+
+  const byBank = useMemo(() => {
+    const map = {};
+    for (const e of monthExpenses) {
+      const key = e.bankId || "unassigned";
+      map[key] = (map[key] || 0) + e.amount;
+    }
+    return Object.entries(map).sort((a, b) => b[1] - a[1]);
+  }, [monthExpenses]);
+
+  const byCategory = useMemo(() => {
+    const map = {};
+    for (const e of monthExpenses) {
+      const key = e.categoryId || "other";
+      map[key] = (map[key] || 0) + e.amount;
+    }
+    return Object.entries(map).sort((a, b) => b[1] - a[1]);
+  }, [monthExpenses]);
+
+  function bankById(id) {
+    return banks.find((b) => b.id === id);
+  }
+
+  function categoryById(id) {
+    return CATEGORIES.find((c) => c.id === id) || CATEGORIES[CATEGORIES.length - 1];
+  }
+
+  function shiftMonth(delta) {
+    setMonthCursor((prev) => {
+      let m = prev.m + delta;
+      let y = prev.y;
+      if (m < 0) { m = 11; y -= 1; }
+      if (m > 11) { m = 0; y += 1; }
+      return { y, m };
+    });
+  }
+
+  const sortedTransactions = useMemo(
+    () => [...expenses].sort((a, b) => (a.date < b.date ? 1 : -1)),
+    [expenses]
+  );
+
+  if (loading) {
+    return (
+      <div style={styles.loadingWrap}>
+        <style>{globalCss}</style>
+        <div style={{ color: "#6B7353", fontFamily: "Georgia, serif" }}>Opening Spend Tally…</div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="olv-app" style={styles.shell}>
+      <style>{globalCss}</style>
+
+      <div style={styles.topBar}>
+        <div style={styles.topBarInner}>
+          <TallyMark size={22} strokeColor="#F3EEE1" accentColor="#C9B872" />
+          <span style={styles.brand}>Spend Tally</span>
+        </div>
+      </div>
+
+      <div style={styles.content}>
+        {tab === "summary" && (
+          <Summary
+            monthCursor={monthCursor}
+            shiftMonth={shiftMonth}
+            monthTotal={monthTotal}
+            byBank={byBank}
+            byCategory={byCategory}
+            bankById={bankById}
+            categoryById={categoryById}
+            monthExpenses={monthExpenses}
+            removeExpense={requestDeleteExpense}
+          />
+        )}
+
+        {tab === "transactions" && (
+          <Transactions transactions={sortedTransactions} bankById={bankById} categoryById={categoryById} removeExpense={requestDeleteExpense} />
+        )}
+
+        {tab === "add" && (
+          <AddExpense
+            form={form}
+            setForm={setForm}
+            banks={banks}
+            newBankName={newBankName}
+            setNewBankName={setNewBankName}
+            onSubmit={addExpenseManual}
+          />
+        )}
+
+        {tab === "sms" && (
+          <SmsImport
+            smsText={smsText}
+            setSmsText={setSmsText}
+            runSmsParse={runSmsParse}
+            smsPreview={smsPreview}
+            banks={banks}
+            togglePreview={togglePreview}
+            updatePreviewBank={updatePreviewBank}
+            updatePreviewCategory={updatePreviewCategory}
+            confirmSmsImport={confirmSmsImport}
+          />
+        )}
+
+        {tab === "banks" && (
+          <Banks bankForm={bankForm} setBankForm={setBankForm} addBank={addBank} banks={banks} removeBank={requestDeleteCard} onDeleteExpense={requestDeleteExpense} expenses={expenses} categoryById={categoryById} />
+        )}
+      </div>
+
+      {confirmTarget && (
+        <ConfirmDialog
+          message={confirmTarget.kind === "card"
+            ? `Delete "${confirmTarget.label}"? Its saved keywords and card digits will be removed. Expenses already recorded against it will stay, just unassigned.`
+            : `Delete this expense — ${confirmTarget.label}? This can't be undone.`}
+          onCancel={cancelDelete}
+          onConfirm={confirmDelete}
+        />
+      )}
+
+      <div style={styles.tabBar}>
+        <TabBtn icon={<Home size={18} />} label="Summary" active={tab === "summary"} onClick={() => setTab("summary")} />
+        <TabBtn icon={<ListChecks size={18} />} label="History" active={tab === "transactions"} onClick={() => setTab("transactions")} />
+        <TabBtn icon={<Plus size={18} />} label="Add" active={tab === "add"} onClick={() => setTab("add")} accent />
+        <TabBtn icon={<Inbox size={18} />} label="SMS" active={tab === "sms"} onClick={() => setTab("sms")} />
+        <TabBtn icon={<Landmark size={18} />} label="Banks" active={tab === "banks"} onClick={() => setTab("banks")} />
+      </div>
+    </div>
+  );
+}
+
+function ConfirmDialog({ message, onCancel, onConfirm }) {
+  return (
+    <div style={styles.overlay} onClick={onCancel}>
+      <div style={styles.dialog} onClick={(e) => e.stopPropagation()}>
+        <div style={styles.dialogTitle}>Delete this?</div>
+        <div style={styles.dialogMessage}>{message}</div>
+        <div style={styles.dialogRow}>
+          <button style={styles.dialogCancel} onClick={onCancel}>Cancel</button>
+          <button style={styles.dialogConfirm} onClick={onConfirm}>Delete</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function TabBtn({ icon, label, active, onClick, accent }) {
+  return (
+    <button onClick={onClick} style={{
+      ...styles.tabBtn,
+      color: active ? "#3F4530" : "#A8AD8C",
+      background: accent ? "#6B7353" : "transparent",
+      borderRadius: accent ? "50%" : 0,
+      width: accent ? 44 : "auto",
+      height: accent ? 44 : "auto",
+      marginTop: accent ? -18 : 0,
+      boxShadow: accent ? "0 4px 10px rgba(63,69,48,0.35)" : "none",
+    }}>
+      <span style={{ color: accent ? "#F3EEE1" : "inherit" }}>{icon}</span>
+      {!accent && <span style={styles.tabLabel}>{label}</span>}
+    </button>
+  );
+}
+
+function Summary({ monthCursor, shiftMonth, monthTotal, byBank, byCategory, bankById, categoryById, monthExpenses, removeExpense }) {
+  return (
+    <div>
+      <div style={styles.monthNav}>
+        <button style={styles.navArrow} onClick={() => shiftMonth(-1)}><ChevronLeft size={18} /></button>
+        <span style={styles.monthLabel}>{MONTH_NAMES[monthCursor.m]} {monthCursor.y}</span>
+        <button style={styles.navArrow} onClick={() => shiftMonth(1)}><ChevronRight size={18} /></button>
+      </div>
+
+      <div style={styles.stampCard}>
+        <div style={styles.stampBadge}>
+          <span style={styles.stampCurrency}>Total</span>
+          <span style={styles.stampAmount}>{formatAmount(monthTotal)}</span>
+          <span style={styles.stampSub}>{monthExpenses.length} entries this month</span>
+        </div>
+      </div>
+
+      {byBank.length > 0 && (
+        <div style={styles.card}>
+          <div style={styles.cardTitle}>By bank</div>
+          {byBank.map(([bankId, amt]) => {
+            const bank = bankById(bankId);
+            const pct = monthTotal ? (amt / monthTotal) * 100 : 0;
+            return (
+              <div key={bankId} style={{ marginBottom: 12 }}>
+                <div style={styles.barRow}>
+                  <span style={styles.barLabel}>{bank ? bank.name : "Unassigned"}</span>
+                  <span style={styles.barAmount}>{formatAmount(amt)}</span>
+                </div>
+                <div style={styles.barTrack}>
+                  <div style={{ ...styles.barFill, width: `${pct}%`, background: bank ? bank.color : "#B8AF95" }} />
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      )}
+
+      {byCategory.length > 0 && (
+        <div style={styles.card}>
+          <div style={styles.cardTitle}>By category</div>
+          {byCategory.map(([catId, amt]) => {
+            const cat = categoryById(catId);
+            const pct = monthTotal ? (amt / monthTotal) * 100 : 0;
+            return (
+              <div key={catId} style={{ marginBottom: 12 }}>
+                <div style={styles.barRow}>
+                  <span style={styles.barLabel}>{cat.name}</span>
+                  <span style={styles.barAmount}>{formatAmount(amt)}</span>
+                </div>
+                <div style={styles.barTrack}>
+                  <div style={{ ...styles.barFill, width: `${pct}%`, background: cat.color }} />
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      )}
+
+      <div style={styles.card}>
+        <div style={styles.cardTitle}>This month's entries</div>
+        {monthExpenses.length === 0 && <div style={styles.emptyText}>Nothing recorded yet — add an expense to get started.</div>}
+        {monthExpenses
+          .slice()
+          .sort((a, b) => (a.date < b.date ? 1 : -1))
+          .map((e) => (
+            <LedgerRow key={e.id} expense={e} bank={bankById(e.bankId)} category={categoryById(e.categoryId)} onDelete={() => removeExpense(e.id, e.description)} />
+          ))}
+      </div>
+    </div>
+  );
+}
+
+function LedgerRow({ expense, bank, category, onDelete }) {
+  return (
+    <div style={styles.ledgerRow}>
+      <div style={styles.ledgerDate}>{formatDateDisplay(expense.date)}</div>
+      <div style={styles.ledgerMid}>
+        <div style={styles.ledgerDesc}>{expense.description}</div>
+        <div style={styles.ledgerMeta}>
+          {bank && <span style={{ ...styles.bankTag, background: bank.color }}>{bank.name}</span>}
+          {category && category.id !== "other" && (
+            <span style={{ ...styles.catTag, borderColor: category.color, color: category.color }}>{category.name}</span>
+          )}
+          {expense.source === "sms" && <span style={styles.smsTag}>SMS</span>}
+        </div>
+      </div>
+      <div style={styles.ledgerLeader} />
+      <div style={styles.ledgerAmount}>{formatAmount(expense.amount)}</div>
+      <button style={styles.deleteBtn} onClick={onDelete}><Trash2 size={14} /></button>
+    </div>
+  );
+}
+
+function Transactions({ transactions, bankById, categoryById, removeExpense }) {
+  return (
+    <div style={styles.card}>
+      <div style={styles.cardTitle}>All transactions</div>
+      {transactions.length === 0 && <div style={styles.emptyText}>No expenses recorded yet.</div>}
+      {transactions.map((e) => (
+        <LedgerRow key={e.id} expense={e} bank={bankById(e.bankId)} category={categoryById(e.categoryId)} onDelete={() => removeExpense(e.id, e.description)} />
+      ))}
+    </div>
+  );
+}
+
+function AddExpense({ form, setForm, banks, newBankName, setNewBankName, onSubmit }) {
+  return (
+    <div style={styles.card}>
+      <div style={styles.cardTitle}>Add an expense</div>
+      <label style={styles.label}>Date</label>
+      <input type="date" value={form.date} onChange={(e) => setForm({ ...form, date: e.target.value })} style={styles.input} />
+
+      <label style={styles.label}>Amount</label>
+      <input type="number" placeholder="0.00" value={form.amount} onChange={(e) => setForm({ ...form, amount: e.target.value })} style={styles.input} />
+
+      <label style={styles.label}>Bank / card</label>
+      <select value={form.bankId} onChange={(e) => setForm({ ...form, bankId: e.target.value })} style={styles.input}>
+        <option value="">Unassigned</option>
+        {banks.map((b) => <option key={b.id} value={b.id}>{b.name}</option>)}
+        <option value="__new__">+ Add new bank…</option>
+      </select>
+      {form.bankId === "__new__" && (
+        <input
+          type="text"
+          placeholder="Enter bank name"
+          value={newBankName}
+          onChange={(e) => setNewBankName(e.target.value)}
+          style={{ ...styles.input, marginTop: 8 }}
+        />
+      )}
+
+      <label style={styles.label}>Category</label>
+      <select value={form.categoryId} onChange={(e) => setForm({ ...form, categoryId: e.target.value })} style={styles.input}>
+        {CATEGORIES.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
+      </select>
+
+      <label style={styles.label}>Description</label>
+      <input type="text" placeholder="e.g. Groceries" value={form.description} onChange={(e) => setForm({ ...form, description: e.target.value })} style={styles.input} />
+
+      <button style={styles.btnPrimary} onClick={onSubmit}>
+        <Check size={16} /> Save expense
+      </button>
+    </div>
+  );
+}
+
+function SmsImport({ smsText, setSmsText, runSmsParse, smsPreview, banks, togglePreview, updatePreviewBank, updatePreviewCategory, confirmSmsImport }) {
+  return (
+    <div>
+      <div style={styles.card}>
+        <div style={styles.cardTitle}>Paste bank SMS</div>
+        <div style={styles.helperText}>
+          Copy your credit-card SMS text from your inbox and paste it below. Separate multiple messages with a blank line for best results.
+        </div>
+        <textarea
+          value={smsText}
+          onChange={(e) => setSmsText(e.target.value)}
+          placeholder={"e.g.\nAED 49.88 is charged on your Credit card 519630******8532 from LIFE PHARMACY on 29/08."}
+          style={styles.textarea}
+        />
+        <button style={styles.btnPrimary} onClick={runSmsParse}>
+          <MessageSquareText size={16} /> Parse messages
+        </button>
+        {banks.length === 0 && (
+          <div style={styles.warnText}>Tip: add your banks and their keywords in the Banks tab so messages can be matched automatically.</div>
+        )}
+      </div>
+
+      {smsPreview.length > 0 && (
+        <div style={styles.card}>
+          <div style={styles.cardTitle}>Review before adding ({smsPreview.filter((p) => p.include).length} selected)</div>
+          {smsPreview.map((p) => (
+            <div key={p.tempId} style={styles.previewRow}>
+              <input type="checkbox" checked={p.include} onChange={() => togglePreview(p.tempId)} style={{ marginTop: 4 }} />
+              <div style={{ flex: 1 }}>
+                <div style={styles.previewText}>{p.raw}</div>
+                <div style={styles.previewMeta}>
+                  <span>{formatDateDisplay(p.date)}</span>
+                  <span style={styles.previewAmt}>{formatAmount(p.amount)}</span>
+                </div>
+                <div style={styles.previewMeta}>
+                  <select value={p.bankId || ""} onChange={(e) => updatePreviewBank(p.tempId, e.target.value || null)} style={styles.previewSelect}>
+                    <option value="">Unassigned</option>
+                    {banks.map((b) => <option key={b.id} value={b.id}>{b.name}</option>)}
+                  </select>
+                  <select value={p.categoryId || "other"} onChange={(e) => updatePreviewCategory(p.tempId, e.target.value)} style={styles.previewSelect}>
+                    {CATEGORIES.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
+                  </select>
+                </div>
+              </div>
+            </div>
+          ))}
+          <button style={styles.btnPrimary} onClick={confirmSmsImport}>
+            <Check size={16} /> Add selected to tally
+          </button>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function Banks({ bankForm, setBankForm, addBank, banks, removeBank, onDeleteExpense, expenses, categoryById }) {
+  const [view, setView] = useState("list"); // list | add | detail
+  const [selectedId, setSelectedId] = useState(null);
+  const [cycleOffset, setCycleOffset] = useState(0);
+
+  function openCard(id) {
+    setSelectedId(id);
+    setCycleOffset(0);
+    setView("detail");
+  }
+
+  function handleAdd() {
+    addBank();
+    setView("list");
+  }
+
+  if (view === "add") {
+    return (
+      <CardForm
+        bankForm={bankForm}
+        setBankForm={setBankForm}
+        onSubmit={handleAdd}
+        onCancel={() => setView("list")}
+      />
+    );
+  }
+
+  if (view === "detail") {
+    const card = banks.find((b) => b.id === selectedId);
+    if (!card) { setView("list"); return null; }
+    return (
+      <CardDetail
+        card={card}
+        expenses={expenses}
+        categoryById={categoryById}
+        cycleOffset={cycleOffset}
+        setCycleOffset={setCycleOffset}
+        onBack={() => setView("list")}
+        onDeleteExpense={onDeleteExpense}
+      />
+    );
+  }
+
+  return (
+    <div>
+      <button style={styles.addCardBtn} onClick={() => setView("add")}>
+        <Plus size={16} /> Add new card
+      </button>
+
+      <div style={styles.card}>
+        <div style={styles.cardTitle}>Your cards</div>
+        {banks.length === 0 && <div style={styles.emptyText}>No cards added yet.</div>}
+        {banks.map((b) => (
+          <div key={b.id} style={styles.cardListRow} onClick={() => openCard(b.id)}>
+            <span style={{ ...styles.bankDot, background: b.color }} />
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <div style={styles.bankName}>{b.name}</div>
+              <div style={styles.bankKeywords}>
+                {(b.cardLast4 || []).length > 0 ? `•• ${(b.cardLast4 || []).join(", ")}` : "no card digits set"}
+                {" · "}{CARD_TYPES.find((t) => t.id === b.cardType)?.name || "Credit card"}
+                {" · "}{b.network || "Other"}
+                {b.statementDay ? ` · Statement: ${b.statementDay}${ordinalSuffix(b.statementDay)}` : ""}
+              </div>
+            </div>
+            <button style={styles.deleteBtn} onClick={(e) => { e.stopPropagation(); removeBank(b.id, b.name); }}><Trash2 size={14} /></button>
+            <ChevronRight size={16} color="#B7ACA0" />
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function ordinalSuffix(n) {
+  const v = n % 100;
+  if (v >= 11 && v <= 13) return "th";
+  switch (n % 10) {
+    case 1: return "st";
+    case 2: return "nd";
+    case 3: return "rd";
+    default: return "th";
+  }
+}
+
+function CardForm({ bankForm, setBankForm, onSubmit, onCancel }) {
+  return (
+    <div style={styles.card}>
+      <div style={styles.cardTitle}>Add new card</div>
+
+      <label style={styles.label}>Bank name</label>
+      <input type="text" placeholder="e.g. HDFC Bank" value={bankForm.name} onChange={(e) => setBankForm({ ...bankForm, name: e.target.value })} style={styles.input} />
+
+      <label style={styles.label}>Card type</label>
+      <div style={styles.segmentRow}>
+        {CARD_TYPES.map((t) => (
+          <button
+            key={t.id}
+            style={{ ...styles.segmentBtn, ...(bankForm.cardType === t.id ? styles.segmentBtnActive : {}) }}
+            onClick={() => setBankForm({ ...bankForm, cardType: t.id })}
+          >
+            {t.name}
+          </button>
+        ))}
+      </div>
+
+      <label style={styles.label}>Card provider</label>
+      <select value={bankForm.network} onChange={(e) => setBankForm({ ...bankForm, network: e.target.value })} style={styles.input}>
+        {NETWORKS.map((n) => <option key={n} value={n}>{n}</option>)}
+      </select>
+
+      <label style={styles.label}>Card last 4 digits (comma separated)</label>
+      <input type="text" placeholder="e.g. 2940, 0004" value={bankForm.cardLast4} onChange={(e) => setBankForm({ ...bankForm, cardLast4: e.target.value })} style={styles.input} />
+      <div style={styles.helperText}>The most reliable way to match — works no matter how each bank phrases its SMS ("Card No XXXX2940", "Card Ending: 0004", etc).</div>
+
+      <label style={styles.label}>Statement generation date</label>
+      <input type="number" min="1" max="31" placeholder="e.g. 10" value={bankForm.statementDay} onChange={(e) => setBankForm({ ...bankForm, statementDay: e.target.value })} style={styles.input} />
+      <div style={styles.helperText}>Day of the month your statement generates. The billing cycle will run from the day after this date to this date the following month.</div>
+
+      <label style={styles.label}>Other keywords (optional, comma separated)</label>
+      <input type="text" placeholder="e.g. HDFC Bank" value={bankForm.keywords} onChange={(e) => setBankForm({ ...bankForm, keywords: e.target.value })} style={styles.input} />
+      <div style={styles.helperText}>Used as a backup if the card digits aren't found in a message.</div>
+
+      <button style={styles.btnPrimary} onClick={onSubmit}><Check size={16} /> Save card</button>
+      <button style={styles.btnGhost} onClick={onCancel}>Cancel</button>
+    </div>
+  );
+}
+
+function CardDetail({ card, expenses, categoryById, cycleOffset, setCycleOffset, onBack, onDeleteExpense }) {
+  const hasCycle = !!card.statementDay;
+
+  const now = new Date();
+  let cycleLabel = "";
+  let cycleExpenses = [];
+  let cycleTotal = 0;
+
+  if (hasCycle) {
+    let y = now.getFullYear();
+    let m = now.getMonth() + cycleOffset;
+    while (m < 0) { m += 12; y -= 1; }
+    while (m > 11) { m -= 12; y += 1; }
+    const { start, end } = cycleRange(y, m, card.statementDay);
+    const startISO = toISO(start);
+    const endISO = toISO(end);
+    cycleLabel = `${start.getDate()} ${MONTH_NAMES[start.getMonth()].slice(0, 3)} – ${end.getDate()} ${MONTH_NAMES[end.getMonth()].slice(0, 3)} ${end.getFullYear()}`;
+    cycleExpenses = expenses.filter((e) => e.bankId === card.id && e.date >= startISO && e.date <= endISO);
+    cycleTotal = cycleExpenses.reduce((s, e) => s + e.amount, 0);
+  } else {
+    cycleExpenses = expenses.filter((e) => e.bankId === card.id).sort((a, b) => (a.date < b.date ? 1 : -1));
+    cycleTotal = cycleExpenses.reduce((s, e) => s + e.amount, 0);
+  }
+
+  return (
+    <div>
+      <div style={styles.detailHeader}>
+        <button style={styles.navArrow} onClick={onBack}><ChevronLeft size={18} /></button>
+        <div>
+          <div style={styles.detailTitle}>{card.name}</div>
+          <div style={styles.bankKeywords}>
+            {(card.cardLast4 || []).length > 0 ? `•• ${(card.cardLast4 || []).join(", ")}` : ""}
+            {" · "}{CARD_TYPES.find((t) => t.id === card.cardType)?.name || "Credit card"}
+            {" · "}{card.network || "Other"}
+          </div>
+        </div>
+      </div>
+
+      {!hasCycle && (
+        <div style={styles.warnText}>No statement date set for this card, so this shows all-time totals instead of billing cycles. Delete and re-add the card with a statement date to see it month-wise.</div>
+      )}
+
+      {hasCycle && (
+        <div style={styles.monthNav}>
+          <button style={styles.navArrow} onClick={() => setCycleOffset(cycleOffset - 1)}><ChevronLeft size={18} /></button>
+          <span style={styles.monthLabel}>{cycleLabel}</span>
+          <button style={styles.navArrow} onClick={() => setCycleOffset(cycleOffset + 1)}><ChevronRight size={18} /></button>
+        </div>
+      )}
+
+      <div style={styles.stampCard}>
+        <div style={{ ...styles.stampBadge, borderColor: card.color }}>
+          <span style={styles.stampCurrency}>{hasCycle ? "Cycle total" : "Total"}</span>
+          <span style={styles.stampAmount}>{formatAmount(cycleTotal)}</span>
+          <span style={styles.stampSub}>{cycleExpenses.length} entries</span>
+        </div>
+      </div>
+
+      <div style={styles.card}>
+        <div style={styles.cardTitle}>Transactions</div>
+        {cycleExpenses.length === 0 && <div style={styles.emptyText}>No spends recorded {hasCycle ? "in this cycle" : "on this card"} yet.</div>}
+        {cycleExpenses
+          .slice()
+          .sort((a, b) => (a.date < b.date ? 1 : -1))
+          .map((e) => (
+            <LedgerRow key={e.id} expense={e} bank={null} category={categoryById(e.categoryId)} onDelete={() => onDeleteExpense(e.id, e.description)} />
+          ))}
+      </div>
+    </div>
+  );
+}
+
+const globalCss = `
+  .olv-app * { box-sizing: border-box; }
+  .olv-app input, .olv-app select, .olv-app textarea { font-family: inherit; }
+  .olv-app input:focus, .olv-app select:focus, .olv-app textarea:focus {
+    outline: none; border-color: #6B7353; box-shadow: 0 0 0 3px rgba(107,115,83,0.15);
+  }
+  .olv-app button { cursor: pointer; border: none; font-family: inherit; }
+`;
+
+const styles = {
+  loadingWrap: { minHeight: 480, display: "flex", alignItems: "center", justifyContent: "center", background: "#F3EEE1" },
+  shell: {
+    fontFamily: "ui-sans-serif, -apple-system, 'Segoe UI', sans-serif",
+    background: "#F3EEE1",
+    minHeight: 560,
+    maxWidth: 480,
+    margin: "0 auto",
+    display: "flex",
+    flexDirection: "column",
+    color: "#2B2E22",
+    position: "relative",
+  },
+  topBar: { background: "#3F4530", padding: "16px 18px" },
+  topBarInner: { display: "flex", alignItems: "center", gap: 8 },
+  brand: { fontFamily: "Georgia, 'Times New Roman', serif", fontSize: 19, letterSpacing: 0.3, color: "#F3EEE1" },
+  content: { flex: 1, overflowY: "auto", padding: "16px 14px 90px" },
+  monthNav: { display: "flex", alignItems: "center", justifyContent: "center", gap: 14, margin: "4px 0 14px" },
+  monthLabel: { fontFamily: "Georgia, serif", fontSize: 16, minWidth: 150, textAlign: "center", color: "#3F4530" },
+  navArrow: { background: "#EAE3CF", border: "1px solid #D8D2BE", borderRadius: 8, padding: 6, color: "#6B7353" },
+  stampCard: {
+    background: "#FBF8F0",
+    border: "1px solid #D8D2BE",
+    borderRadius: 16,
+    padding: "22px 16px",
+    marginBottom: 16,
+    display: "flex",
+    justifyContent: "center",
+    boxShadow: "inset 0 0 0 6px #F3EEE1",
+  },
+  stampBadge: {
+    width: 168, height: 168, borderRadius: "50%",
+    border: "3px double #6B7353",
+    display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center",
+    transform: "rotate(-3deg)",
+    color: "#3F4530",
+  },
+  stampCurrency: { fontSize: 11, letterSpacing: 2, textTransform: "uppercase", color: "#8A7B4F" },
+  stampAmount: { fontFamily: "Georgia, serif", fontSize: 30, fontWeight: 700, margin: "2px 0" },
+  stampSub: { fontSize: 10, color: "#6B7353", textAlign: "center", padding: "0 12px" },
+  card: { background: "#FBF8F0", border: "1px solid #E2DCC8", borderRadius: 14, padding: 16, marginBottom: 14 },
+  cardTitle: { fontFamily: "Georgia, serif", fontSize: 15, color: "#3F4530", marginBottom: 12, fontWeight: 700 },
+  barRow: { display: "flex", justifyContent: "space-between", fontSize: 13, marginBottom: 4 },
+  barLabel: { color: "#4A4E3A" },
+  barAmount: { fontFamily: "Georgia, serif", color: "#3F4530", fontVariantNumeric: "tabular-nums" },
+  barTrack: { height: 6, borderRadius: 4, background: "#EFEADA", overflow: "hidden" },
+  barFill: { height: "100%", borderRadius: 4 },
+  emptyText: { color: "#9A9482", fontSize: 13, fontStyle: "italic" },
+  ledgerRow: { display: "flex", alignItems: "flex-start", gap: 8, padding: "10px 0", borderBottom: "1px dashed #E2DCC8" },
+  ledgerDate: { fontSize: 11, color: "#8A8F5C", width: 62, paddingTop: 3, flexShrink: 0 },
+  ledgerMid: { flex: 1, minWidth: 0 },
+  ledgerDesc: { fontSize: 13.5, color: "#2B2E22" },
+  ledgerMeta: { display: "flex", gap: 6, marginTop: 4, flexWrap: "wrap" },
+  bankTag: { fontSize: 10, color: "#FBF8F0", padding: "2px 7px", borderRadius: 20 },
+  catTag: { fontSize: 10, background: "transparent", border: "1px solid", padding: "2px 7px", borderRadius: 20 },
+  smsTag: { fontSize: 10, color: "#6B7353", border: "1px solid #C9C2A8", padding: "2px 7px", borderRadius: 20 },
+  ledgerLeader: { flex: "0 0 0" },
+  ledgerAmount: { fontFamily: "Georgia, serif", fontSize: 14, color: "#3F4530", fontVariantNumeric: "tabular-nums", paddingTop: 3, whiteSpace: "nowrap" },
+  deleteBtn: { background: "transparent", color: "#B7ACA0", padding: 4, marginLeft: 2 },
+  label: { display: "block", fontSize: 11.5, color: "#6B7353", marginTop: 12, marginBottom: 5, textTransform: "uppercase", letterSpacing: 0.5 },
+  input: { width: "100%", padding: "10px 12px", borderRadius: 9, border: "1px solid #D8D2BE", background: "#FFFDF8", fontSize: 14, color: "#2B2E22" },
+  textarea: { width: "100%", minHeight: 110, padding: "10px 12px", borderRadius: 9, border: "1px solid #D8D2BE", background: "#FFFDF8", fontSize: 13, color: "#2B2E22", marginTop: 6, resize: "vertical" },
+  btnPrimary: { marginTop: 16, width: "100%", display: "flex", alignItems: "center", justifyContent: "center", gap: 6, background: "#3F4530", color: "#F3EEE1", padding: "11px 14px", borderRadius: 10, fontSize: 14, fontWeight: 600 },
+  helperText: { fontSize: 12, color: "#8A8578", marginTop: 6, lineHeight: 1.4 },
+  warnText: { fontSize: 12, color: "#9C8F4E", marginTop: 10, lineHeight: 1.4 },
+  previewRow: { display: "flex", gap: 8, padding: "10px 0", borderBottom: "1px dashed #E2DCC8" },
+  previewText: { fontSize: 12.5, color: "#4A4E3A", lineHeight: 1.4 },
+  previewMeta: { display: "flex", alignItems: "center", gap: 10, marginTop: 6, fontSize: 12, color: "#6B7353" },
+  previewAmt: { fontFamily: "Georgia, serif", fontWeight: 700, color: "#3F4530" },
+  previewSelect: { marginLeft: "auto", fontSize: 11, border: "1px solid #D8D2BE", borderRadius: 6, padding: "3px 6px", background: "#FFFDF8" },
+  bankRow: { display: "flex", alignItems: "center", gap: 10, padding: "9px 0", borderBottom: "1px dashed #E2DCC8" },
+  bankDot: { width: 10, height: 10, borderRadius: "50%", flexShrink: 0 },
+  bankName: { fontSize: 14, color: "#2B2E22" },
+  bankKeywords: { fontSize: 11.5, color: "#9A9482", marginTop: 2 },
+  addCardBtn: { width: "100%", display: "flex", alignItems: "center", justifyContent: "center", gap: 6, background: "#3F4530", color: "#F3EEE1", padding: "12px 14px", borderRadius: 12, fontSize: 14, fontWeight: 600, marginBottom: 14 },
+  cardListRow: { display: "flex", alignItems: "center", gap: 10, padding: "11px 0", borderBottom: "1px dashed #E2DCC8", cursor: "pointer" },
+  segmentRow: { display: "flex", gap: 8, marginBottom: 2 },
+  segmentBtn: { flex: 1, padding: "9px 10px", borderRadius: 9, border: "1px solid #D8D2BE", background: "#FFFDF8", color: "#6B7353", fontSize: 13 },
+  segmentBtnActive: { background: "#3F4530", color: "#F3EEE1", borderColor: "#3F4530" },
+  btnGhost: { marginTop: 10, width: "100%", display: "flex", alignItems: "center", justifyContent: "center", background: "transparent", color: "#8A8578", padding: "9px 14px", borderRadius: 10, fontSize: 13 },
+  detailHeader: { display: "flex", alignItems: "center", gap: 12, marginBottom: 14 },
+  detailTitle: { fontFamily: "Georgia, serif", fontSize: 17, color: "#3F4530", fontWeight: 700 },
+  tabBar: { display: "flex", alignItems: "center", justifyContent: "space-around", background: "#FBF8F0", borderTop: "1px solid #E2DCC8", padding: "8px 6px 10px", position: "sticky", bottom: 0 },
+  tabBtn: { display: "flex", flexDirection: "column", alignItems: "center", gap: 3, background: "transparent", padding: "6px 8px" },
+  tabLabel: { fontSize: 10 },
+  overlay: { position: "fixed", inset: 0, background: "rgba(43,46,34,0.45)", display: "flex", alignItems: "center", justifyContent: "center", padding: 24, zIndex: 999 },
+  dialog: { background: "#FBF8F0", borderRadius: 14, padding: 20, maxWidth: 340, width: "100%", border: "1px solid #D8D2BE", boxShadow: "0 10px 30px rgba(43,46,34,0.25)" },
+  dialogTitle: { fontFamily: "Georgia, serif", fontSize: 16, fontWeight: 700, color: "#3F4530", marginBottom: 8 },
+  dialogMessage: { fontSize: 13, color: "#4A4E3A", lineHeight: 1.5, marginBottom: 18 },
+  dialogRow: { display: "flex", gap: 10 },
+  dialogCancel: { flex: 1, padding: "10px 12px", borderRadius: 9, background: "#EAE3CF", color: "#3F4530", fontSize: 13.5, fontWeight: 600 },
+  dialogConfirm: { flex: 1, padding: "10px 12px", borderRadius: 9, background: "#8A5A44", color: "#FBF8F0", fontSize: 13.5, fontWeight: 600 },
+};
+
+
+const root = ReactDOM.createRoot(document.getElementById("root"));
+root.render(<ExpenseTracker />);
+
+</script>
+<script>
+  if ("serviceWorker" in navigator) {
+    window.addEventListener("load", () => {
+      navigator.serviceWorker.register("sw.js").catch(() => {});
+    });
+  }
+</script>
+</body>
+</html>

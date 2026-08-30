@@ -13,9 +13,9 @@
   html, body { margin: 0; padding: 0; background: #F3EEE1; }
   #root { min-height: 100vh; }
 </style>
-<script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js" onerror="showLoadError('React')"></script>
-<script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js" onerror="showLoadError('ReactDOM')"></script>
-<script src="https://unpkg.com/@babel/standalone/babel.min.js" onerror="showLoadError('Babel')"></script>
+<script crossorigin src="https://unpkg.com/react@18.3.1/umd/react.production.min.js" onerror="showLoadError('React')"></script>
+<script crossorigin src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.production.min.js" onerror="showLoadError('ReactDOM')"></script>
+<script crossorigin src="https://unpkg.com/@babel/standalone@7.24.7/babel.min.js" onerror="showLoadError('Babel')"></script>
 </head>
 <body>
 <div id="root">
@@ -41,7 +41,13 @@
     el.textContent = 'Spend Tally hit an error while starting up:\n\n' + (e.message || e) + '\n\nFile: ' + (e.filename || 'unknown') + (e.lineno ? (':' + e.lineno) : '');
   });
 </script>
+<script>
+  if (typeof React === "undefined") showLoadError("React");
+  else if (typeof ReactDOM === "undefined") showLoadError("ReactDOM");
+  else if (typeof Babel === "undefined") showLoadError("Babel");
+</script>
 <script type="text/babel" data-presets="react">
+    const { useState, useEffect, useMemo } = React;
     
 // Local, on-device storage shim standing in for Claude's window.storage API
 window.storage = {
